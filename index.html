@@ -2734,11 +2734,11 @@ body.theme-new-dark .settings-tab-btn.active::after { background: #D56C4E !impor
                 <button id="importConvBtn" class="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-[10px] text-zinc-500 glass hover:text-zinc-300 hover:bg-white/5 transition-all" data-i18n="conv_import_btn" data-i18n-title="conv_import_title">Import</button>
             </div>
             <div class="flex items-center gap-1.5">
+                <button id="memoryBookBtn" class="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-[10px] text-amber-400/80 glass hover:text-amber-300 hover:bg-amber-500/10 transition-all" title="查看与导出义勇记忆册">
+                    <span>记忆册</span>
+                </button>
                 <button id="sidebarSettingsBtn" class="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-[10px] text-zinc-500 glass hover:text-zinc-300 hover:bg-white/5 transition-all">
                     <span data-i18n="settings">Settings</span>
-                </button>
-                <button id="viewPromptBtn" class="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-[10px] text-zinc-500 glass hover:text-zinc-300 hover:bg-white/5 transition-all" data-i18n-title="view_prompt_title">
-                    <span class="text-[10px] font-semibold uppercase tracking-wider">Prompt</span>
                 </button>
             </div>
         </div>
@@ -6049,12 +6049,8 @@ function recordBackupMade() {
 function showBackupReminderIfNeeded() {
     if (!shouldShowBackupReminder()) return;
 
-    // 只在 LS 兜底时提醒；OPFS 容量较大，交由用量警告接管
-    const backend = StorageService.getBackend();
-    if (backend === 'idb') {
-        // OPFS 也可能 quota 紧张（尤其是手机），让 updateStorageInfo 的警告接管
-        return;
-    }
+    // 修复：原逻辑在 IndexedDB 后端时跳过提醒，导致 iPhone 上永远不弹备份提醒。
+    // iOS 随时可能清理 IndexedDB，同样需要定期提醒备份，因此移除该限制。
 
     setTimeout(() => {
         const reminder = document.createElement('div');
@@ -6090,6 +6086,260 @@ function getStorageBackendLabel(backend) {
     if (backend === 'legacy-idb') return '\u65e7\u7248 IndexedDB';
     return 'localStorage';
 }
+
+// ==================== 义勇记忆册系统 ====================
+// 功能：定期将对话概括为时间线式记忆段落，累积存储，可导出为TXT
+// 与现有Sum总结的区别：Sum是压缩上下文用的替换式摘要；记忆册是累积式、人可读的情感脉络
+
+var MEMORY_BOOK_KEY = 'giyuu-memory-book';
+var MEMORY_BOOK_TRIGGER = 30; // 每30条消息触发一次记忆生成
+var MEMORY_BOOK_PROMPT = [
+    '你是一个专门为角色扮演对话生成"记忆册"的助手。',
+    '请仔细阅读以下对话内容，以时间线方式概括成一段记忆，要求：',
+    '',
+    '1. 标注大致时间（根据对话中的线索推断，如"大正·初夏""大正·深秋"等）',
+    '2. 概括关键事件：发生了什么重要的事',
+    '3. 概括讨论内容：两人聊了什么有意义的话题',
+    '4. 概括感情变化：两人的关系有什么推进或变化',
+    '5. 保留义勇说过的让人印象深刻的台词（用引号标注）',
+    '6. 语言要精炼、有画面感、有情感温度，像在写一段回忆录',
+    '7. 不要写成流水账，要提炼出这一段对话的情感脉络',
+    '8. 只输出记忆段落本身，不要加任何前言后语',
+    '',
+    '格式参考：',
+    '【大正·深秋】',
+    '某夜义勇出任务遇到强敌，险些重伤。澄子在桥边等到深夜，见他归来时衣衫带血，',
+    '第一次在他面前哭了。义勇沉默许久，最终说出了"我会活下去"的承诺。两人的手',
+    '在月光下紧紧相握，从此每夜的相见不再只是陪伴，而是彼此活下去的理由。',
+    '',
+    '以下是需要概括的对话内容：',
+    ''
+].join('\n');
+
+// 获取记忆册数据
+function getMemoryBook() {
+    try {
+        var raw = localStorage.getItem(MEMORY_BOOK_KEY);
+        if (!raw) return { entries: [], lastTriggeredAt: 0, lastCoveredMsgCount: 0 };
+        var data = JSON.parse(raw);
+        if (!data.entries) data.entries = [];
+        return data;
+    } catch (e) {
+        return { entries: [], lastTriggeredAt: 0, lastCoveredMsgCount: 0 };
+    }
+}
+
+// 保存记忆册数据
+function saveMemoryBook(book) {
+    try {
+        localStorage.setItem(MEMORY_BOOK_KEY, JSON.stringify(book));
+    } catch (e) {
+        console.warn('[MemoryBook] 保存失败:', e);
+    }
+}
+
+// 检查是否需要生成记忆（在AI回复完成后调用）
+function maybeGenerateMemoryEntry() {
+    var conv = getActiveConv();
+    if (!conv || !conv.messages) return;
+
+    var book = getMemoryBook();
+    var totalMsgs = conv.messages.length;
+
+    // 按消息条数触发
+    if (totalMsgs - book.lastCoveredMsgCount < MEMORY_BOOK_TRIGGER) return;
+
+    // 获取新增的消息（自上次记忆以来的）
+    var newMsgs = conv.messages.slice(book.lastCoveredMsgCount);
+    if (newMsgs.length < 10) return; // 太少不值得总结
+
+    // 构造对话文本
+    var dialogText = '';
+    newMsgs.forEach(function(msg) {
+        var role = msg.role === 'user' ? '澄子' : '义勇';
+        var content = (msg.content || msg.text || '').toString();
+        if (content) dialogText += role + '：' + content + '\n\n';
+    });
+
+    if (!dialogText.trim()) return;
+
+    // 调用AI生成记忆
+    generateMemoryEntry(dialogText, totalMsgs);
+}
+
+// 调用AI生成记忆段落
+function generateMemoryEntry(dialogText, totalMsgs) {
+    var conv = getActiveConv();
+    if (!conv) return;
+
+    var settings = state.settings || {};
+    var apiEndpoint = settings.apiEndpoint || '';
+    var apiKey = settings.apiKey || '';
+    var model = settings.model || 'deepseek-chat';
+
+    if (!apiEndpoint || !apiKey) {
+        console.log('[MemoryBook] API未配置，跳过记忆生成');
+        return;
+    }
+
+    // 构造API请求
+    var endpoint = apiEndpoint.replace(/\/+$/, '');
+    if (!endpoint.endsWith('/v1')) endpoint += '/v1';
+    var url = endpoint + '/chat/completions';
+
+    var requestBody = {
+        model: model,
+        messages: [
+            { role: 'system', content: MEMORY_BOOK_PROMPT },
+            { role: 'user', content: dialogText }
+        ],
+        temperature: 0.7,
+        max_tokens: 800,
+        stream: false
+    };
+
+    console.log('[MemoryBook] 开始生成记忆，消息数:', totalMsgs);
+
+    fetch(url, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + apiKey
+        },
+        body: JSON.stringify(requestBody)
+    }).then(function(res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+    }).then(function(data) {
+        var memoryText = '';
+        if (data.choices && data.choices[0] && data.choices[0].message) {
+            memoryText = data.choices[0].message.content || '';
+        }
+        if (memoryText.trim()) {
+            var book = getMemoryBook();
+            book.entries.push({
+                content: memoryText.trim(),
+                generatedAt: new Date().toISOString(),
+                coveredMsgCount: totalMsgs
+            });
+            book.lastCoveredMsgCount = totalMsgs;
+            saveMemoryBook(book);
+            console.log('[MemoryBook] 记忆已生成并保存，累计:', book.entries.length, '段');
+
+            // 轻提示
+            showMemoryToast('记忆册已更新一段');
+        }
+    }).catch(function(err) {
+        console.warn('[MemoryBook] 生成失败:', err);
+    });
+}
+
+// 轻提示
+function showMemoryToast(text) {
+    var toast = document.createElement('div');
+    toast.style.cssText = 'position:fixed;bottom:60px;left:50%;transform:translateX(-50%);background:rgba(60,130,90,0.9);color:white;padding:10px 18px;border-radius:10px;font-size:12px;z-index:99999;box-shadow:0 4px 12px rgba(0,0,0,0.3);max-width:280px;text-align:center;';
+    toast.textContent = text;
+    document.body.appendChild(toast);
+    setTimeout(function() { toast.style.transition = 'opacity 0.5s'; toast.style.opacity = '0'; }, 2500);
+    setTimeout(function() { if (toast.parentNode) toast.remove(); }, 3000);
+}
+
+// 导出记忆册为TXT
+function exportMemoryBook() {
+    var book = getMemoryBook();
+    if (!book.entries || book.entries.length === 0) {
+        alert('记忆册还是空的，多聊一会儿再导出吧～');
+        return;
+    }
+
+    var txt = '义勇记忆册\n';
+    txt += '生成时间：' + new Date().toLocaleString('zh-CN') + '\n';
+    txt += '共 ' + book.entries.length + ' 段记忆\n';
+    txt += '========================================\n\n';
+
+    book.entries.forEach(function(entry, i) {
+        txt += entry.content + '\n';
+        txt += '\n----------------------------------------\n\n';
+    });
+
+    txt += '\n（记忆册完）\n';
+
+    var blob = new Blob([txt], { type: 'text/plain;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = '义勇记忆册_' + new Date().toISOString().slice(0, 10) + '.txt';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    // 记录备份时间
+    try { localStorage.setItem('opentavern-last-backup', Date.now().toString()); } catch (e) {}
+}
+
+// 查看记忆册内容（弹窗）
+function viewMemoryBook() {
+    var book = getMemoryBook();
+    var content = '';
+    if (!book.entries || book.entries.length === 0) {
+        content = '记忆册还是空的。\n多聊一会儿，每' + MEMORY_BOOK_TRIGGER + '条消息会自动生成一段记忆。';
+    } else {
+        content = book.entries.map(function(e) { return e.content; }).join('\n\n---\n\n');
+    }
+
+    var modal = document.createElement('div');
+    modal.style.cssText = 'position:fixed;inset:0;z-index:200;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;padding:20px;';
+    var box = document.createElement('div');
+    box.style.cssText = 'background:#1a1a20;border:1px solid rgba(255,255,255,0.1);border-radius:16px;width:100%;max-width:500px;max-height:80vh;display:flex;flex-direction:column;';
+    var header = document.createElement('div');
+    header.style.cssText = 'padding:16px 20px;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;justify-content:space-between;align-items:center;';
+    header.innerHTML = '<span style="color:#e4e4e7;font-size:15px;font-weight:600;">义勇记忆册</span>';
+    var closeBtn = document.createElement('button');
+    closeBtn.textContent = '×';
+    closeBtn.style.cssText = 'background:none;border:none;color:#a1a1aa;font-size:22px;cursor:pointer;padding:0 4px;';
+    closeBtn.onclick = function() { modal.remove(); };
+    header.appendChild(closeBtn);
+
+    var body = document.createElement('div');
+    body.style.cssText = 'padding:16px 20px;overflow-y:auto;flex:1;';
+    var pre = document.createElement('pre');
+    pre.style.cssText = 'white-space:pre-wrap;word-break:break-word;color:#d4d4d8;font-size:13px;line-height:1.7;font-family:inherit;margin:0;';
+    pre.textContent = content;
+    body.appendChild(pre);
+
+    var footer = document.createElement('div');
+    footer.style.cssText = 'padding:12px 20px;border-top:1px solid rgba(255,255,255,0.08);display:flex;gap:10px;';
+    var exportBtn = document.createElement('button');
+    exportBtn.textContent = '导出为TXT';
+    exportBtn.style.cssText = 'flex:1;padding:10px;background:#f59e0b;border:none;border-radius:8px;color:white;font-size:13px;font-weight:600;cursor:pointer;';
+    exportBtn.onclick = function() { exportMemoryBook(); };
+    var manualBtn = document.createElement('button');
+    manualBtn.textContent = '立即生成一段';
+    manualBtn.style.cssText = 'flex:1;padding:10px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.1);border-radius:8px;color:#d4d4d8;font-size:13px;font-weight:500;cursor:pointer;';
+    manualBtn.onclick = function() {
+        var conv = getActiveConv();
+        if (conv && conv.messages) {
+            generateMemoryEntry('', conv.messages.length);
+            modal.remove();
+            showMemoryToast('正在生成记忆...');
+        }
+    };
+    footer.appendChild(manualBtn);
+    footer.appendChild(exportBtn);
+
+    box.appendChild(header);
+    box.appendChild(body);
+    box.appendChild(footer);
+    modal.appendChild(box);
+    document.body.appendChild(modal);
+
+    modal.addEventListener('click', function(e) {
+        if (e.target === modal) modal.remove();
+    });
+}
+
+// ==================== 记忆册系统结束 ====================
 
 function formatStorageMB(bytes) {
     return ((bytes || 0) / 1024 / 1024).toFixed(1);
@@ -11255,6 +11505,8 @@ function completeGenerationTurn(conv) {
     if (state.settings.summaryEnabled) {
         setTimeout(function() { autoSummarize(); }, 500);
     }
+    // 记忆册：AI回复完成后检查是否需要生成记忆
+    setTimeout(function() { maybeGenerateMemoryEntry(); }, 800);
 }
 
 function handlePrimaryAssistantComplete(fullContent, fullCot) {
@@ -17193,6 +17445,12 @@ function bindEvents() {
 
     // Conversation export all
     dom.exportAllBtn.addEventListener('click', exportAllConversations);
+
+    // 记忆册按钮
+    var memoryBookBtn = document.getElementById('memoryBookBtn');
+    if (memoryBookBtn) {
+        memoryBookBtn.addEventListener('click', viewMemoryBook);
+    }
 
     // Conversation import
     dom.importConvBtn.addEventListener('click', function() { dom.convImportFile.click(); });
