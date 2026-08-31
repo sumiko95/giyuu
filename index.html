@@ -2741,6 +2741,11 @@ body.theme-new-dark .settings-tab-btn.active::after { background: #D56C4E !impor
                     <span data-i18n="settings">Settings</span>
                 </button>
             </div>
+            <!-- 备用导入按钮（iOS兼容） -->
+            <label for="convImportFileDirect" style="display:flex;align-items:center;justify-content:center;gap:4px;padding:6px 8px;border-radius:8px;font-size:10px;color:#f59e0b;background:rgba(245,158,11,0.08);border:1px dashed rgba(245,158,11,0.3);cursor:pointer;text-align:center;transition:all 0.2s;">
+                点此导入备份（如果上方Import无效请用这个）
+            </label>
+            <input type="file" id="convImportFileDirect" accept=".json,application/json" style="position:absolute;width:1px;height:1px;opacity:0;overflow:hidden;left:-9999px;">
         </div>
         <input type="file" id="convImportFile" accept=".json,application/json" style="position:absolute;width:1px;height:1px;opacity:0;overflow:hidden;left:-9999px;">
         <input type="file" id="wiImportFile" accept=".json,application/json" style="position:absolute;width:1px;height:1px;opacity:0;overflow:hidden;left:-9999px;">
@@ -17452,11 +17457,48 @@ function bindEvents() {
         memoryBookBtn.addEventListener('click', viewMemoryBook);
     }
 
+    // 备用导入按钮（用label触发，iOS兼容性更好）
+    var importFileDirect = document.getElementById('convImportFileDirect');
+    if (importFileDirect) {
+        importFileDirect.addEventListener('change', function(e) {
+            var file = e.target.files && e.target.files[0];
+            if (!file) return;
+            console.log('[Import-Direct] file selected:', file.name, 'size:', file.size);
+            try {
+                importConversations(file);
+            } catch(err) {
+                console.error('[Import-Direct] error:', err);
+                alert('导入失败: ' + err.message);
+            }
+            importFileDirect.value = '';
+        });
+    }
+
     // Conversation import
-    dom.importConvBtn.addEventListener('click', function() { dom.convImportFile.click(); });
+    dom.importConvBtn.addEventListener('click', function() {
+        console.log('[Import] button clicked');
+        try {
+            dom.convImportFile.click();
+            console.log('[Import] file input click triggered');
+        } catch(e) {
+            console.error('[Import] failed to trigger file input:', e);
+            alert('导入按钮出错: ' + e.message);
+        }
+    });
     dom.convImportFile.addEventListener('change', function(e) {
-        var file = e.target.files[0];
-        if (file) importConversations(file);
+        console.log('[Import] file input change event');
+        var file = e.target.files && e.target.files[0];
+        if (!file) {
+            console.log('[Import] no file selected');
+            return;
+        }
+        console.log('[Import] file selected:', file.name, 'size:', file.size);
+        try {
+            importConversations(file);
+        } catch(err) {
+            console.error('[Import] error calling importConversations:', err);
+            alert('导入失败: ' + err.message);
+        }
         dom.convImportFile.value = '';
     });
 
