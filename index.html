@@ -17684,6 +17684,27 @@ function bindEvents() {
     }, 2000);
     setTimeout(function() { try { updateResendBtnVisibility(); } catch(e) {} }, 1500);
 
+    // 输入框自动解锁：检测输入框被禁用但没有正在生成时，强制解锁
+    setInterval(function() {
+        try {
+            var input = document.getElementById('messageInput');
+            if (input && input.disabled && !state.isGenerating && state.settings && state.settings.apiKey) {
+                console.log('[InputUnlock] 检测到输入框异常禁用，强制解锁');
+                input.disabled = false;
+            }
+        } catch(e) {}
+    }, 3000);
+    // 页面加载后5秒，重置可能的卡死状态
+    setTimeout(function() {
+        try {
+            if (state.isGenerating) {
+                console.log('[InputUnlock] isGenerating卡在true，强制重置');
+                state.isGenerating = false;
+            }
+            if (typeof updateInputState === 'function') updateInputState();
+        } catch(e) {}
+    }, 5000);
+
     // 备用导入按钮（用label触发，iOS兼容性更好）
     var importFileDirect = document.getElementById('convImportFileDirect');
     if (importFileDirect) {
