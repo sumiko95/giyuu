@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>localStorage诊断</title>
+<style>
+body { font-family: -apple-system, sans-serif; background: #1a1a20; color: #e4e4e7; padding: 20px; max-width: 500px; margin: 0 auto; }
+.box { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+h2 { font-size: 18px; margin: 0 0 12px; }
+h3 { font-size: 14px; margin: 0 0 8px; color: #a1a1aa; }
+button { background: #f59e0b; color: white; border: none; border-radius: 8px; padding: 12px 20px; font-size: 14px; font-weight: 600; width: 100%; margin: 8px 0; cursor: pointer; }
+button.secondary { background: rgba(255,255,255,0.1); color: #d4d4d8; }
+.result { background: rgba(0,0,0,0.3); border-radius: 8px; padding: 10px; font-family: monospace; font-size: 12px; white-space: pre-wrap; word-break: break-all; margin-top: 8px; min-height: 20px; }
+.ok { color: #4ade80; }
+.fail { color: #f87171; }
+.info { color: #60a5fa; }
+</style>
+</head>
+<body>
+
+<h2>📱 localStorage 诊断工具</h2>
+
+<div class="box">
+<h3>测试1：localStorage基本功能</h3>
+<button onclick="testBasic()">运行测试</button>
+<div id="result1" class="result">点击按钮开始测试</div>
+</div>
+
+<div class="box">
+<h3>测试2：写入并读取数据</h3>
+<button onclick="testWriteRead()">写入→关闭→读取</button>
+<div id="result2" class="result">点击测试数据持久化</div>
+</div>
+
+<div class="box">
+<h3>测试3：检查紧急备份</h3>
+<button onclick="checkBackup()">检查备份</button>
+<div id="result3" class="result">检查 giyuu-emergency-backup 是否存在</div>
+</div>
+
+<div class="box">
+<h3>测试4：写入大量数据（模拟导入）</3>
+<button onclick="testLargeData()">写入100KB测试</button>
+<div id="result4" class="result">测试大容量写入</div>
+</div>
+
+<div class="box">
+<h3>测试5：所有localStorage键</h3>
+<button onclick="listKeys()">列出所有键</button>
+<div id="result5" class="result">列出当前localStorage所有键</div>
+</div>
+
+<div class="box">
+<h3>当前页面信息</h3>
+<div class="result" id="pageInfo">加载中...</div>
+</div>
+
+<script>
+// 页面信息
+document.getElementById('pageInfo').textContent =
+    'URL: ' + location.href + '\n' +
+    'Origin: ' + location.origin + '\n' +
+    'User Agent: ' + navigator.userAgent.slice(0, 100);
+
+// 测试1：基本功能
+function testBasic() {
+    var el = document.getElementById('result1');
+    try {
+        if (typeof(Storage) === 'undefined') {
+            el.innerHTML = '<span class="fail">❌ 浏览器不支持 localStorage</span>';
+            return;
+        }
+        localStorage.setItem('test-basic', 'hello');
+        var val = localStorage.getItem('test-basic');
+        if (val === 'hello') {
+            el.innerHTML = '<span class="ok">✅ localStorage 基本功能正常</span>\n写入: hello\n读取: ' + val;
+        } else {
+            el.innerHTML = '<span class="fail">❌ 写入成功但读取值不对</span>\n写入: hello\n读取: ' + val;
+        }
+    } catch(e) {
+        el.innerHTML = '<span class="fail">❌ localStorage 报错:</span>\n' + e.message + '\n' + e.name;
+    }
+}
+
+// 测试2：写入→刷新→读取
+function testWriteRead() {
+    var el = document.getElementById('result2');
+    try {
+        var testVal = 'persist-test-' + Date.now();
+        localStorage.setItem('test-persist', testVal);
+        el.innerHTML = '<span class="info">已写入: ' + testVal + '</span>\n\n现在请：\n1. 关掉这个标签页\n2. 重新打开同一个地址\n3. 再点这个按钮\n4. 看下面的值是否还在';
+        
+        // 立即读取
+        var current = localStorage.getItem('test-persist');
+        el.innerHTML += '\n\n当前读取: ' + current;
+        if (current === testVal) {
+            el.innerHTML += '\n<span class="ok">✅ 立即读取成功</span>';
+        }
+    } catch(e) {
+        el.innerHTML = '<span class="fail">❌ 报错: ' + e.message + '</span>';
+    }
+}
+
+// 测试3：检查紧急备份
+function checkBackup() {
+    var el = document.getElementById('result3');
+    try {
+        var backup = localStorage.getItem('giyuu-emergency-backup');
+        if (backup) {
+            var data = JSON.parse(backup);
+            var convCount = data.conversations ? Object.keys(data.conversations).length : 0;
+            var charCount = data.characters ? Object.keys(data.characters).length : 0;
+            el.innerHTML = '<span class="ok">✅ 找到紧急备份!</span>\n' +
+                '备份大小: ' + (backup.length / 1024).toFixed(1) + ' KB\n' +
+                '对话数: ' + convCount + '\n' +
+                '角色卡数: ' + charCount + '\n' +
+                '保存时间: ' + (data.savedAt || data.lastSaved || '未知');
+        } else {
+            el.innerHTML = '<span class="fail">❌ 没有找到紧急备份</span>\n这说明导入时没有写入成功';
+        }
+    } catch(e) {
+        el.innerHTML = '<span class="fail">❌ 读取备份报错: ' + e.message + '</span>';
+    }
+}
+
+// 测试4：写入100KB
+function testLargeData() {
+    var el = document.getElementById('result4');
+    try {
+        var big = 'x'.repeat(100 * 1024); // 100KB
+        localStorage.setItem('test-large', big);
+        var read = localStorage.getItem('test-large');
+        if (read && read.length === 102400) {
+            el.innerHTML = '<span class="ok">✅ 100KB写入读取成功</span>\n写入: 102400字节\n读取: ' + read.length + '字节';
+        } else {
+            el.innerHTML = '<span class="fail">❌ 写入或读取异常</span>';
+        }
+    } catch(e) {
+        el.innerHTML = '<span class="fail">❌ 大数据写入失败: ' + e.message + '</span>\n这可能是存储配额限制';
+    }
+}
+
+// 测试5：列出所有键
+function listKeys() {
+    var el = document.getElementById('result5');
+    try {
+        var keys = Object.keys(localStorage);
+        if (keys.length === 0) {
+            el.innerHTML = '<span class="fail">❌ localStorage 完全为空</span>\n没有任何数据被存储';
+        } else {
+            var html = '<span class="info">共 ' + keys.length + ' 个键:</span>\n';
+            keys.forEach(function(k) {
+                var v = localStorage.getItem(k);
+                var size = v ? v.length : 0;
+                html += '\n• ' + k + ' (' + (size/1024).toFixed(1) + ' KB)';
+            });
+            el.innerHTML = html;
+        }
+    } catch(e) {
+        el.innerHTML = '<span class="fail">❌ 列出键失败: ' + e.message + '</span>';
+    }
+}
+</script>
+</body>
+</html>
