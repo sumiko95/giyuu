@@ -2759,6 +2759,13 @@ body.theme-new-dark .settings-tab-btn.active::after { background: #D56C4E !impor
         ⚠️ 数据可能未加载 · 点此强制恢复
     </div>
 
+    <!-- 永久诊断条：版本号 + 存储状态 + 手动恢复 -->
+    <div id="diagBar" style="position:fixed;bottom:0;left:0;right:0;z-index:9997;background:rgba(0,0,0,0.85);color:#a1a1aa;text-align:center;padding:6px 10px;font-size:10px;font-family:monospace;border-top:1px solid rgba(255,255,255,0.1);">
+        <span id="diagInfo">v5 · 检查中...</span>
+        <button id="diagRestoreBtn" onclick="forceRestoreFromStorage()" style="background:#dc2626;color:white;border:none;border-radius:4px;padding:3px 10px;font-size:10px;font-weight:600;cursor:pointer;margin-left:8px;">强制恢复</button>
+        <button id="diagCheckBtn" onclick="runStorageDiag()" style="background:rgba(255,255,255,0.15);color:#d4d4d8;border:none;border-radius:4px;padding:3px 10px;font-size:10px;cursor:pointer;margin-left:4px;">检查存储</button>
+    </div>
+
     <!-- Main Content Area -->
     <div class="flex-1 flex flex-col overflow-hidden">
         <!-- Library View (homepage / default) -->
@@ -6431,6 +6438,52 @@ function checkForceRestoreNeeded() {
             console.error('[Force Restore] Check failed:', e);
         }
     }, 3000); // 3秒后检查，等OpenTavern初始化完成
+}
+
+// 运行存储诊断
+function runStorageDiag() {
+    try {
+        var keys = Object.keys(localStorage);
+        var info = 'v5 · 键数:' + keys.length;
+        if (keys.length > 0) {
+            var mainData = localStorage.getItem('opentavern-data-v1');
+            if (mainData) {
+                info += ' · 主数据:' + (mainData.length/1024).toFixed(0) + 'KB';
+            } else {
+                info += ' · 无主数据';
+            }
+            var backup = localStorage.getItem('giyuu-emergency-backup');
+            if (backup) {
+                info += ' · 备份:' + (backup.length/1024).toFixed(0) + 'KB';
+            }
+        } else {
+            info += ' · localStorage为空!';
+        }
+        var diagInfo = document.getElementById('diagInfo');
+        if (diagInfo) diagInfo.textContent = info;
+        alert('存储诊断:\n\nlocalStorage键数: ' + keys.length + '\n\n键列表:\n' + keys.map(function(k) {
+            var v = localStorage.getItem(k);
+            return '• ' + k + ' (' + ((v?v.length:0)/1024).toFixed(1) + 'KB)';
+        }).join('\n'));
+    } catch(e) {
+        alert('诊断失败: ' + e.message);
+    }
+}
+
+// 页面加载时更新诊断条
+function updateDiagBar() {
+    setTimeout(function() {
+        try {
+            var keys = Object.keys(localStorage);
+            var info = 'v5 · 键数:' + keys.length;
+            var mainData = localStorage.getItem('opentavern-data-v1');
+            if (mainData) {
+                info += ' · 主数据:' + (mainData.length/1024).toFixed(0) + 'KB';
+            }
+            var diagInfo = document.getElementById('diagInfo');
+            if (diagInfo) diagInfo.textContent = info;
+        } catch(e) {}
+    }, 2000);
 }
 
 // ==================== 强制恢复系统结束 ====================
@@ -18695,6 +18748,9 @@ init().then(function() {
 
     // 强制恢复检查：3秒后检查localStorage是否有数据但当前状态为空
     checkForceRestoreNeeded();
+
+    // 更新底部诊断条
+    updateDiagBar();
 
     // 紧急恢复：如果主状态为空但紧急备份存在，从备份恢复
     try {
