@@ -2761,9 +2761,10 @@ body.theme-new-dark .settings-tab-btn.active::after { background: #D56C4E !impor
 
     <!-- 永久诊断条：版本号 + 存储状态 + 手动恢复 -->
     <div id="diagBar" style="position:fixed;bottom:0;left:0;right:0;z-index:9997;background:rgba(0,0,0,0.85);color:#a1a1aa;text-align:center;padding:6px 10px;font-size:10px;font-family:monospace;border-top:1px solid rgba(255,255,255,0.1);">
-        <span id="diagInfo">v6</span>
+        <span id="diagInfo">v7</span>
         <button onclick="javascript:try{var k=Object.keys(localStorage);var m='';for(var i=0;i<k.length;i++){var v=localStorage.getItem(k[i]);m+=k[i]+'('+((v?v.length:0)/1024).toFixed(1)+'KB)\\n'}alert('键数:'+k.length+'\\n\\n'+m)}catch(e){alert('错误:'+e.message)}" style="background:#2563eb;color:white;border:none;border-radius:4px;padding:3px 10px;font-size:10px;font-weight:600;cursor:pointer;margin-left:8px;">查存储</button>
         <button onclick="javascript:try{var r=localStorage.getItem('opentavern-data-v1');if(r){var d=JSON.parse(r);alert('主数据:'+r.length+'字节,对话:'+(d.conversations?Object.keys(d.conversations).length:0)+'个')}else{alert('无主数据!')}}catch(e){alert('错误:'+e.message)}" style="background:rgba(255,255,255,0.15);color:#d4d4d8;border:none;border-radius:4px;padding:3px 10px;font-size:10px;cursor:pointer;margin-left:4px;">查数据</button>
+        <button onclick="javascript:try{var r=localStorage.getItem('opentavern-data-v1');if(!r){alert('无数据可恢复!')}else{var d=JSON.parse(r);state.conversations=d.conversations;state.conversationOrder=d.conversationOrder||Object.keys(d.conversations);state.characters=d.characters||{};state.worldBooks=d.worldBooks||{};if(d.settings){if(!state.settings)state.settings={};var ks=Object.keys(d.settings);for(var i=0;i<ks.length;i++){state.settings[ks[i]]=d.settings[ks[i]]}};state.activeConvId=state.conversationOrder[0]||null;persistState(true);if(typeof renderLibraryGrids==='function')renderLibraryGrids();if(typeof renderMyCards==='function')renderMyCards();if(typeof requestRender==='function')requestRender('activeConvId');alert('✅恢复成功!对话:'+Object.keys(d.conversations).length+'个')}}catch(e){alert('恢复错误:'+e.message+',行号可能问题,试试查数据')}" style="background:#dc2626;color:white;border:none;border-radius:4px;padding:3px 10px;font-size:10px;font-weight:600;cursor:pointer;margin-left:4px;">🔧强制恢复</button>
     </div>
 
     <!-- Main Content Area -->
