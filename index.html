@@ -2754,6 +2754,11 @@ body.theme-new-dark .settings-tab-btn.active::after { background: #D56C4E !impor
     <!-- Sidebar Backdrop (mobile only) -->
     <div id="sidebarBackdrop"></div>
 
+    <!-- 强制恢复按钮（紧急用） -->
+    <div id="forceRestoreBar" style="position:fixed;top:0;left:0;right:0;z-index:9998;background:rgba(220,38,38,0.9);color:white;text-align:center;padding:8px;font-size:12px;font-weight:600;cursor:pointer;display:none;">
+        ⚠️ 数据可能未加载 · 点此强制恢复
+    </div>
+
     <!-- Main Content Area -->
     <div class="flex-1 flex flex-col overflow-hidden">
         <!-- Library View (homepage / default) -->
@@ -6345,6 +6350,90 @@ function viewMemoryBook() {
 }
 
 // ==================== 记忆册系统结束 ====================
+
+// ==================== 强制恢复系统 ====================
+// 直接从localStorage读取opentavern-data-v1，绕过所有复杂存储逻辑
+
+function forceRestoreFromStorage() {
+    try {
+        var raw = localStorage.getItem('opentavern-data-v1');
+        if (!raw) {
+            alert('localStorage里没有找到 opentavern-data-v1 数据');
+            return false;
+        }
+        var data = JSON.parse(raw);
+        if (!data) {
+            alert('数据解析失败');
+            return false;
+        }
+        var convCount = data.conversations ? Object.keys(data.conversations).length : 0;
+        if (convCount === 0) {
+            alert('数据存在但对话为空');
+            return false;
+        }
+
+        console.log('[Force Restore] 找到数据:', convCount, '个对话');
+
+        // 直接赋值
+        state.conversations = data.conversations;
+        state.conversationOrder = data.conversationOrder || Object.keys(data.conversations);
+        state.characters = data.characters || {};
+        state.worldBooks = data.worldBooks || {};
+        if (data.settings) {
+            if (!state.settings) state.settings = {};
+            Object.keys(data.settings).forEach(function(k) {
+                state.settings[k] = data.settings[k];
+            });
+        }
+        state.activeConvId = state.conversationOrder[0] || null;
+
+        // 保存
+        persistState(true);
+
+        // 刷新UI
+        if (typeof renderLibraryGrids === 'function') renderLibraryGrids();
+        if (typeof renderMyCards === 'function') renderMyCards();
+        requestRender('activeConvId');
+
+        // 隐藏警告条
+        var bar = document.getElementById('forceRestoreBar');
+        if (bar) bar.style.display = 'none';
+
+        alert('✅ 强制恢复成功！找到 ' + convCount + ' 个对话');
+        return true;
+    } catch(e) {
+        alert('强制恢复失败: ' + e.message);
+        console.error('[Force Restore] Failed:', e);
+        return false;
+    }
+}
+
+// 页面加载后检查是否需要显示强制恢复按钮
+function checkForceRestoreNeeded() {
+    setTimeout(function() {
+        try {
+            var raw = localStorage.getItem('opentavern-data-v1');
+            if (!raw) return;
+            var data = JSON.parse(raw);
+            var convCount = data.conversations ? Object.keys(data.conversations).length : 0;
+            var currentCount = state.conversations ? Object.keys(state.conversations).length : 0;
+            
+            // 如果localStorage有数据但当前状态为空，显示强制恢复按钮
+            if (convCount > 0 && currentCount === 0) {
+                var bar = document.getElementById('forceRestoreBar');
+                if (bar) {
+                    bar.style.display = 'block';
+                    bar.onclick = forceRestoreFromStorage;
+                    console.log('[Force Restore] 显示恢复按钮: localStorage有', convCount, '个对话但当前为空');
+                }
+            }
+        } catch(e) {
+            console.error('[Force Restore] Check failed:', e);
+        }
+    }, 3000); // 3秒后检查，等OpenTavern初始化完成
+}
+
+// ==================== 强制恢复系统结束 ====================
 
 function formatStorageMB(bytes) {
     return ((bytes || 0) / 1024 / 1024).toFixed(1);
@@ -18603,6 +18692,9 @@ init().then(function() {
     }
 
     showBackupReminderIfNeeded();
+
+    // 强制恢复检查：3秒后检查localStorage是否有数据但当前状态为空
+    checkForceRestoreNeeded();
 
     // 紧急恢复：如果主状态为空但紧急备份存在，从备份恢复
     try {
