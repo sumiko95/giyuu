@@ -2935,6 +2935,12 @@ body.theme-new-dark .settings-tab-btn.active::after { background: #D56C4E !impor
                         disabled>
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/><path d="M14 14l2 2"/></svg>
                 </button>
+                <button id="resendBtn"
+                        class="flex-shrink-0 w-11 h-11 rounded-2xl bg-blue-500/80 hover:bg-blue-400 active:bg-blue-600 text-white font-semibold shadow-lg shadow-blue-500/20 transition-all duration-200 flex items-center justify-center"
+                        title="重发：义勇没有回复时，点此重新发送你的最后一条消息"
+                        style="display:none;">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+                </button>
                 <button id="sendBtn"
                         class="flex-shrink-0 w-11 h-11 rounded-2xl bg-amber-500 hover:bg-amber-400 active:bg-amber-600 text-white font-semibold shadow-lg shadow-amber-500/20 hover:shadow-amber-500/35 transition-all duration-200 flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed"
                         disabled>
@@ -17621,6 +17627,62 @@ function bindEvents() {
     if (memoryBookBtn) {
         memoryBookBtn.addEventListener('click', viewMemoryBook);
     }
+
+    // 重发按钮：当最后一条消息是用户消息（义勇没回复）时显示
+    var resendBtn = document.getElementById('resendBtn');
+    if (resendBtn) {
+        resendBtn.addEventListener('click', function() {
+            if (state.isGenerating) return;
+            var conv = getActiveConv();
+            if (!conv || !conv.messages || conv.messages.length === 0) return;
+            var lastMsg = conv.messages[conv.messages.length - 1];
+            if (!lastMsg || lastMsg.role !== 'user') return;
+
+            console.log('[Resend] 重新发送最后一条消息');
+            var start = function() {
+                streamChat(
+                    function onToken(token, fullContent, fullCot) {
+                        updateStreamingBubble(fullContent, conv, getCurrentGeneratingSpeakerName(conv), fullCot);
+                    },
+                    handlePrimaryAssistantComplete,
+                    function onError(err) {
+                        var streamingEl = document.getElementById('streamingMsg');
+                        if (streamingEl) streamingEl.remove();
+                        state.isGenerating = false;
+                        appStore.notify('isGenerating');
+                        renderMessagesOnly();
+                        alert('Error: ' + (err.message || err));
+                    }
+                );
+                updateInputState();
+            };
+            start();
+        });
+    }
+
+    // 检查是否需要显示重发按钮（在消息渲染后调用）
+    function updateResendBtnVisibility() {
+        var btn = document.getElementById('resendBtn');
+        if (!btn) return;
+        try {
+            if (state.isGenerating) { btn.style.display = 'none'; return; }
+            var conv = getActiveConv();
+            if (!conv || !conv.messages || conv.messages.length === 0) { btn.style.display = 'none'; return; }
+            var lastMsg = conv.messages[conv.messages.length - 1];
+            // 最后一条是用户消息时显示（说明义勇没回复）
+            if (lastMsg && lastMsg.role === 'user') {
+                btn.style.display = 'flex';
+            } else {
+                btn.style.display = 'none';
+            }
+        } catch(e) { btn.style.display = 'none'; }
+    }
+
+    // 定时检查重发按钮显示状态（每2秒）
+    setInterval(function() {
+        try { updateResendBtnVisibility(); } catch(e) {}
+    }, 2000);
+    setTimeout(function() { try { updateResendBtnVisibility(); } catch(e) {} }, 1500);
 
     // 备用导入按钮（用label触发，iOS兼容性更好）
     var importFileDirect = document.getElementById('convImportFileDirect');
