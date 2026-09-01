@@ -8138,6 +8138,12 @@ function persistState(immediate) {
     const doPersist = async () => {
         try {
             await StorageService.saveAll(dataToSave);
+            // 紧急备份：每次保存时同步写一份到localStorage，防止主存储层失效
+            try {
+                localStorage.setItem('giyuu-emergency-backup', JSON.stringify(dataToSave));
+            } catch(ebErr) {
+                // 静默失败，不影响主流程
+            }
         } catch (e) {
             // Quota 错误已在 StorageService._handleQuotaExceeded 中处理并导出备份
             if (!StorageService._isQuotaError || !StorageService._isQuotaError(e)) {
@@ -15502,6 +15508,22 @@ function importConversations(file) {
                 }
                 persistState(true);
                 requestRender('activeConvId');
+
+                // 紧急备份：直接写localStorage，绕过OpenTavern复杂存储层
+                try {
+                    var emergencyBackup = {
+                        conversations: state.conversations,
+                        conversationOrder: state.conversationOrder,
+                        characters: state.characters || {},
+                        worldBooks: state.worldBooks || {},
+                        settings: typeof getSafeSettingsForPersist === 'function' ? getSafeSettingsForPersist() : (state.settings || {}),
+                        savedAt: new Date().toISOString()
+                    };
+                    localStorage.setItem('giyuu-emergency-backup', JSON.stringify(emergencyBackup));
+                    console.log('[Emergency Backup] Saved successfully, conversations:', Object.keys(state.conversations).length);
+                } catch(ebErr) {
+                    console.error('[Emergency Backup] Save failed:', ebErr);
+                }
             }
 
             var msg = t('import_conv_success') + imported + t('import_conv_success_suffix');
@@ -18581,6 +18603,40 @@ init().then(function() {
     }
 
     showBackupReminderIfNeeded();
+
+    // 紧急恢复：如果主状态为空但紧急备份存在，从备份恢复
+    try {
+        if (state && (!state.conversations || Object.keys(state.conversations).length === 0)) {
+            var emergencyData = localStorage.getItem('giyuu-emergency-backup');
+            if (emergencyData) {
+                var backup = JSON.parse(emergencyData);
+                if (backup.conversations && Object.keys(backup.conversations).length > 0) {
+                    console.log('[Emergency Backup] Found backup, restoring...');
+                    state.conversations = backup.conversations;
+                    state.conversationOrder = backup.conversationOrder || Object.keys(backup.conversations);
+                    state.characters = backup.characters || {};
+                    if (backup.worldBooks) state.worldBooks = backup.worldBooks;
+                    if (backup.settings) {
+                        if (!state.settings) state.settings = {};
+                        Object.keys(backup.settings).forEach(function(k) {
+                            if (!state.settings[k] && state.settings[k] !== 0) {
+                                state.settings[k] = backup.settings[k];
+                            }
+                        });
+                    }
+                    state.activeConvId = state.conversationOrder[0] || null;
+                    persistState(true);
+                    if (typeof renderLibraryGrids === 'function') renderLibraryGrids();
+                    if (typeof renderMyCards === 'function') renderMyCards();
+                    requestRender('activeConvId');
+                    console.log('[Emergency Backup] Restored', Object.keys(state.conversations).length, 'conversations');
+                    showMemoryToast('已从紧急备份恢复数据');
+                }
+            }
+        }
+    } catch(restoreErr) {
+        console.error('[Emergency Backup] Restore failed:', restoreErr);
+    }
 
     // 旧的 IndexedDB 迁移提示已移除（不再使用 IDB）
 }).catch(function(err) {
