@@ -2761,9 +2761,9 @@ body.theme-new-dark .settings-tab-btn.active::after { background: #D56C4E !impor
 
     <!-- 永久诊断条：版本号 + 存储状态 + 手动恢复 -->
     <div id="diagBar" style="position:fixed;bottom:0;left:0;right:0;z-index:9997;background:rgba(0,0,0,0.85);color:#a1a1aa;text-align:center;padding:6px 10px;font-size:10px;font-family:monospace;border-top:1px solid rgba(255,255,255,0.1);">
-        <span id="diagInfo">v5 · 检查中...</span>
-        <button id="diagRestoreBtn" onclick="forceRestoreFromStorage()" style="background:#dc2626;color:white;border:none;border-radius:4px;padding:3px 10px;font-size:10px;font-weight:600;cursor:pointer;margin-left:8px;">强制恢复</button>
-        <button id="diagCheckBtn" onclick="runStorageDiag()" style="background:rgba(255,255,255,0.15);color:#d4d4d8;border:none;border-radius:4px;padding:3px 10px;font-size:10px;cursor:pointer;margin-left:4px;">检查存储</button>
+        <span id="diagInfo">v6</span>
+        <button onclick="javascript:try{var k=Object.keys(localStorage);var m='';for(var i=0;i<k.length;i++){var v=localStorage.getItem(k[i]);m+=k[i]+'('+((v?v.length:0)/1024).toFixed(1)+'KB)\\n'}alert('键数:'+k.length+'\\n\\n'+m)}catch(e){alert('错误:'+e.message)}" style="background:#2563eb;color:white;border:none;border-radius:4px;padding:3px 10px;font-size:10px;font-weight:600;cursor:pointer;margin-left:8px;">查存储</button>
+        <button onclick="javascript:try{var r=localStorage.getItem('opentavern-data-v1');if(r){var d=JSON.parse(r);alert('主数据:'+r.length+'字节,对话:'+(d.conversations?Object.keys(d.conversations).length:0)+'个')}else{alert('无主数据!')}}catch(e){alert('错误:'+e.message)}" style="background:rgba(255,255,255,0.15);color:#d4d4d8;border:none;border-radius:4px;padding:3px 10px;font-size:10px;cursor:pointer;margin-left:4px;">查数据</button>
     </div>
 
     <!-- Main Content Area -->
